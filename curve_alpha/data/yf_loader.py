@@ -6,9 +6,12 @@ import yfinance as yf
 def safe_get(data, key, default=None):
     try:
         value = data.get(key, default)
+
         if value is None:
             return default
+
         return value
+
     except Exception:
         return default
 
@@ -127,9 +130,11 @@ def load_price_history(
             if px.empty:
                 continue
 
-            # ------------------------
-            # MultiIndex除去
-            # ------------------------
+            px = px.reset_index()
+
+            # ----------------------------
+            # yfinance MultiIndex対策
+            # ----------------------------
 
             if isinstance(
                 px.columns,
@@ -139,8 +144,6 @@ def load_price_history(
                     px.columns
                     .get_level_values(0)
                 )
-
-            px = px.reset_index()
 
             date_col = (
                 "Date"
@@ -162,11 +165,11 @@ def load_price_history(
                     "ticker": [t] * len(px),
                     "date": pd.to_datetime(
                         px[date_col],
-                        errors="coerce",
+                        errors="coerce"
                     ),
                     "close": pd.to_numeric(
                         px["Close"],
-                        errors="coerce",
+                        errors="coerce"
                     ),
                 }
             )
@@ -205,18 +208,8 @@ def load_price_history(
         ignore_index=True,
     )
 
-    # 完全フラット化
-    out = pd.DataFrame(
-        {
-            "ticker": out["ticker"].astype(str).values,
-            "date": pd.to_datetime(
-                out["date"]
-            ).values,
-            "close": pd.to_numeric(
-                out["close"],
-                errors="coerce",
-            ).values,
-        }
+    out = out.reset_index(
+        drop=True
     )
 
     return out
