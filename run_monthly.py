@@ -18,6 +18,17 @@ fundamentals, prices = load_all_data(
     price_interval=config.get("lookback", {}).get("price_interval", "1d"),
 )
 
+print("\n=== UNIVERSE ===")
+print(universe.head())
+print(universe.columns)
+
+print("\n=== FUNDAMENTALS ===")
+print(fundamentals.head())
+print(fundamentals.columns)
+
+print("\n=== PRICES ===")
+print(prices.head())
+print(prices.columns)
 ranking = build_ranking(universe, fundamentals, prices, weights=config["weights"])
 ranking.to_csv(OUT / "curve_alpha_ranking.csv", index=False)
 
