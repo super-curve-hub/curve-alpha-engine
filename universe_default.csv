@@ -1,0 +1,11 @@
+ticker,name,sector,theme_tags
+NVDA,NVIDIA,Semiconductors,ai;semiconductor;datacenter
+MSFT,Microsoft,Software,ai;cloud
+AVGO,Broadcom,Semiconductors,ai;semiconductor;network
+META,Meta Platforms,Communication Services,ai;advertising
+GOOGL,Alphabet,Communication Services,ai;cloud
+AMZN,Amazon,Consumer Discretionary,ai;cloud
+TSM,Taiwan Semiconductor,Semiconductors,ai;semiconductor
+ANET,Arista Networks,Technology,datacenter;network
+AMD,Advanced Micro Devices,Semiconductors,ai;semiconductor
+PLTR,Palantir,Software,ai;defense

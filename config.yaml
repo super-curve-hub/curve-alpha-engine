@@ -1,0 +1,19 @@
+weights:
+  quality: 0.25
+  value: 0.20
+  momentum: 0.20
+  risk: 0.10
+  macro: 0.10
+  flow: 0.05
+  theme: 0.10
+
+lookback:
+  price_period: "1y"
+  price_interval: "1d"
+
+rating:
+  strong_buy: 90
+  buy: 80
+  accumulate: 70
+  neutral: 60
+  reduce: 50
