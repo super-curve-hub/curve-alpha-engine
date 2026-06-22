@@ -28,6 +28,10 @@ def load_fundamentals(tickers):
 
             market_cap = safe_get(info, "marketCap")
             fcf = safe_get(info, "freeCashflow")
+            total_debt = safe_get(info, "totalDebt")
+            total_cash = safe_get(info, "totalCash")
+            revenue = safe_get(info, "totalRevenue")
+            ebitda = safe_get(info, "ebitda")
 
             fcf_yield = None
 
@@ -37,6 +41,16 @@ def load_fundamentals(tickers):
                 and fcf is not None
             ):
                 fcf_yield = fcf / market_cap
+
+            ev_sales = safe_get(
+                info,
+                "enterpriseToRevenue"
+            )
+
+            ev_ebitda = safe_get(
+                info,
+                "enterpriseToEbitda"
+            )
 
             debt_to_equity = safe_get(
                 info,
@@ -60,8 +74,8 @@ def load_fundamentals(tickers):
                     "pe": safe_get(info, "trailingPE"),
                     "forward_pe": safe_get(info, "forwardPE"),
                     "pb": safe_get(info, "priceToBook"),
-                    "ev_ebitda": safe_get(info, "enterpriseToEbitda"),
-                    "ev_sales": safe_get(info, "enterpriseToRevenue"),
+                    "ev_ebitda": ev_ebitda,
+                    "ev_sales": ev_sales,
                     "fcf_yield": fcf_yield,
                     "debt_to_equity": debt_to_equity,
                     "beta": safe_get(info, "beta"),
@@ -79,10 +93,10 @@ def load_fundamentals(tickers):
                         "heldPercentInsiders"
                     ),
                     "buyback_yield": None,
-                    "revenue": safe_get(info, "totalRevenue"),
-                    "ebitda": safe_get(info, "ebitda"),
-                    "total_debt": safe_get(info, "totalDebt"),
-                    "total_cash": safe_get(info, "totalCash"),
+                    "revenue": revenue,
+                    "ebitda": ebitda,
+                    "total_debt": total_debt,
+                    "total_cash": total_cash,
                 }
             )
 
@@ -130,11 +144,9 @@ def load_price_history(
             if px.empty:
                 continue
 
-            px = px.reset_index()
-
-            # ----------------------------
-            # yfinance MultiIndex対策
-            # ----------------------------
+            # ---------------------------------
+            # yfinance MultiIndex完全除去
+            # ---------------------------------
 
             if isinstance(
                 px.columns,
@@ -145,6 +157,8 @@ def load_price_history(
                     .get_level_values(0)
                 )
 
+            px = px.reset_index()
+
             date_col = (
                 "Date"
                 if "Date" in px.columns
@@ -154,24 +168,24 @@ def load_price_history(
             if "Close" not in px.columns:
 
                 print(
-                    "CLOSE COLUMN NOT FOUND:",
+                    "Close column missing:",
                     t
                 )
 
                 continue
 
-            tmp = pd.DataFrame(
-                {
-                    "ticker": [t] * len(px),
-                    "date": pd.to_datetime(
-                        px[date_col],
-                        errors="coerce"
-                    ),
-                    "close": pd.to_numeric(
-                        px["Close"],
-                        errors="coerce"
-                    ),
-                }
+            tmp = pd.DataFrame()
+
+            tmp["ticker"] = [t] * len(px)
+
+            tmp["date"] = pd.to_datetime(
+                px[date_col],
+                errors="coerce"
+            )
+
+            tmp["close"] = pd.to_numeric(
+                px["Close"],
+                errors="coerce"
             )
 
             tmp = tmp.dropna(
@@ -208,8 +222,18 @@ def load_price_history(
         ignore_index=True,
     )
 
-    out = out.reset_index(
-        drop=True
+    # 強制フラット化
+    out = pd.DataFrame(
+        {
+            "ticker": out["ticker"].astype(str).values,
+            "date": pd.to_datetime(
+                out["date"]
+            ).values,
+            "close": pd.to_numeric(
+                out["close"],
+                errors="coerce"
+            ).values,
+        }
     )
 
     return out
