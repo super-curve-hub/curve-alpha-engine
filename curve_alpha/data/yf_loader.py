@@ -20,30 +20,10 @@ def load_fundamentals(tickers):
 
             info = yf.Ticker(ticker).info
 
-            market_cap = safe_get(info, "marketCap")
-            fcf = safe_get(info, "freeCashflow")
-
-            fcf_yield = None
-
-            if (
-                market_cap is not None
-                and market_cap > 0
-                and fcf is not None
-            ):
-                fcf_yield = fcf / market_cap
-
-            debt_to_equity = safe_get(
-                info,
-                "debtToEquity"
-            )
-
-            if debt_to_equity is not None:
-                debt_to_equity = debt_to_equity / 100.0
-
             rows.append(
                 {
                     "ticker": ticker,
-                    "market_cap": market_cap,
+                    "market_cap": safe_get(info, "marketCap"),
                     "roe": safe_get(info, "returnOnEquity"),
                     "roa": safe_get(info, "returnOnAssets"),
                     "gross_margin": safe_get(info, "grossMargins"),
@@ -56,27 +36,12 @@ def load_fundamentals(tickers):
                     "pb": safe_get(info, "priceToBook"),
                     "ev_ebitda": safe_get(info, "enterpriseToEbitda"),
                     "ev_sales": safe_get(info, "enterpriseToRevenue"),
-                    "fcf_yield": fcf_yield,
-                    "debt_to_equity": debt_to_equity,
+                    "debt_to_equity": safe_get(info, "debtToEquity"),
                     "beta": safe_get(info, "beta"),
                     "short_ratio": safe_get(info, "shortRatio"),
-                    "short_percent_float": safe_get(
-                        info,
-                        "shortPercentOfFloat"
-                    ),
-                    "held_percent_institutions": safe_get(
-                        info,
-                        "heldPercentInstitutions"
-                    ),
-                    "held_percent_insiders": safe_get(
-                        info,
-                        "heldPercentInsiders"
-                    ),
-                    "buyback_yield": None,
-                    "revenue": safe_get(info, "totalRevenue"),
-                    "ebitda": safe_get(info, "ebitda"),
-                    "total_debt": safe_get(info, "totalDebt"),
-                    "total_cash": safe_get(info, "totalCash"),
+                    "short_percent_float": safe_get(info, "shortPercentOfFloat"),
+                    "held_percent_institutions": safe_get(info, "heldPercentInstitutions"),
+                    "held_percent_insiders": safe_get(info, "heldPercentInsiders"),
                 }
             )
 
@@ -99,7 +64,7 @@ def load_price_history(
     interval="1d"
 ):
 
-    frames = []
+    all_records = []
 
     for ticker in tickers:
 
@@ -117,18 +82,10 @@ def load_price_history(
             if px.empty:
                 continue
 
-            # -------------------------
-            # yfinance MultiIndex対策
-            # -------------------------
+            # MultiIndex除去
+            if isinstance(px.columns, pd.MultiIndex):
 
-            if isinstance(
-                px.columns,
-                pd.MultiIndex
-            ):
-                px.columns = (
-                    px.columns
-                    .get_level_values(0)
-                )
+                px.columns = px.columns.get_level_values(0)
 
             px = px.reset_index()
 
@@ -138,23 +95,21 @@ def load_price_history(
             if "Close" not in px.columns:
                 continue
 
-            tmp = pd.DataFrame(
-                {
-                    "ticker": ticker,
-                    "date": pd.to_datetime(
-                        px["Date"],
-                        errors="coerce"
-                    ),
-                    "close": pd.to_numeric(
-                        px["Close"],
-                        errors="coerce"
-                    ),
-                }
-            )
+            for _, row in px.iterrows():
 
-            tmp = tmp.dropna()
-
-            frames.append(tmp)
+                all_records.append(
+                    {
+                        "ticker": str(ticker),
+                        "date": pd.to_datetime(
+                            row["Date"],
+                            errors="coerce"
+                        ),
+                        "close": pd.to_numeric(
+                            row["Close"],
+                            errors="coerce"
+                        ),
+                    }
+                )
 
             time.sleep(0.05)
 
@@ -166,33 +121,25 @@ def load_price_history(
                 str(e)
             )
 
-    if len(frames) == 0:
-
-        return pd.DataFrame(
-            columns=[
-                "ticker",
-                "date",
-                "close",
-            ]
-        )
-
-    out = pd.concat(
-        frames,
-        ignore_index=True,
+    out = pd.DataFrame(
+        all_records,
+        columns=[
+            "ticker",
+            "date",
+            "close",
+        ],
     )
 
-    out = out[
-        [
+    out = out.dropna(
+        subset=[
             "ticker",
             "date",
             "close",
         ]
-    ]
+    )
 
-    out.columns = [
-        "ticker",
-        "date",
-        "close",
-    ]
+    out = out.reset_index(
+        drop=True
+    )
 
     return out
