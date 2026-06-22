@@ -5,10 +5,7 @@ import yfinance as yf
 
 def safe_get(data, key, default=None):
     try:
-        value = data.get(key, default)
-        if value is None:
-            return default
-        return value
+        return data.get(key, default)
     except Exception:
         return default
 
@@ -23,30 +20,10 @@ def load_fundamentals(tickers):
 
             info = yf.Ticker(ticker).info
 
-            market_cap = safe_get(info, "marketCap")
-            fcf = safe_get(info, "freeCashflow")
-
-            fcf_yield = None
-
-            if (
-                market_cap is not None
-                and market_cap > 0
-                and fcf is not None
-            ):
-                fcf_yield = fcf / market_cap
-
-            debt_to_equity = safe_get(
-                info,
-                "debtToEquity"
-            )
-
-            if debt_to_equity is not None:
-                debt_to_equity = debt_to_equity / 100.0
-
             rows.append(
                 {
                     "ticker": ticker,
-                    "market_cap": market_cap,
+                    "market_cap": safe_get(info, "marketCap"),
                     "roe": safe_get(info, "returnOnEquity"),
                     "roa": safe_get(info, "returnOnAssets"),
                     "gross_margin": safe_get(info, "grossMargins"),
@@ -59,27 +36,12 @@ def load_fundamentals(tickers):
                     "pb": safe_get(info, "priceToBook"),
                     "ev_ebitda": safe_get(info, "enterpriseToEbitda"),
                     "ev_sales": safe_get(info, "enterpriseToRevenue"),
-                    "fcf_yield": fcf_yield,
-                    "debt_to_equity": debt_to_equity,
+                    "debt_to_equity": safe_get(info, "debtToEquity"),
                     "beta": safe_get(info, "beta"),
                     "short_ratio": safe_get(info, "shortRatio"),
-                    "short_percent_float": safe_get(
-                        info,
-                        "shortPercentOfFloat"
-                    ),
-                    "held_percent_institutions": safe_get(
-                        info,
-                        "heldPercentInstitutions"
-                    ),
-                    "held_percent_insiders": safe_get(
-                        info,
-                        "heldPercentInsiders"
-                    ),
-                    "buyback_yield": None,
-                    "revenue": safe_get(info, "totalRevenue"),
-                    "ebitda": safe_get(info, "ebitda"),
-                    "total_debt": safe_get(info, "totalDebt"),
-                    "total_cash": safe_get(info, "totalCash"),
+                    "short_percent_float": safe_get(info, "shortPercentOfFloat"),
+                    "held_percent_institutions": safe_get(info, "heldPercentInstitutions"),
+                    "held_percent_insiders": safe_get(info, "heldPercentInsiders"),
                 }
             )
 
@@ -102,7 +64,7 @@ def load_price_history(
     interval="1d"
 ):
 
-    all_rows = []
+    rows = []
 
     for ticker in tickers:
 
@@ -122,60 +84,45 @@ def load_price_history(
 
             px = px.reset_index()
 
-            # Date列
-            date_col = px.columns[0]
+            date_series = px.iloc[:, 0]
 
-            # Close列探索
-            close_col = None
+            # MultiIndex対応
+            if isinstance(px.columns, pd.MultiIndex):
 
-            for col in px.columns:
+                if "Close" not in px.columns.get_level_values(0):
+                    continue
 
-                col_name = str(col)
+                close_series = px["Close"].iloc[:, 0]
 
-                if "Close" in col_name:
-                    close_col = col
-                    break
+            else:
 
-            if close_col is None:
+                if "Close" not in px.columns:
+                    continue
 
-                print(
-                    "CLOSE NOT FOUND:",
-                    ticker
-                )
+                close_series = px["Close"]
 
-                continue
-
-            tmp = pd.DataFrame()
-
-            tmp["ticker"] = ticker
-
-            tmp["date"] = pd.to_datetime(
-                px[date_col],
-                errors="coerce"
-            )
-
-            close_data = px[close_col]
-
-            if isinstance(
-                close_data,
-                pd.DataFrame
-            ):
-                close_data = close_data.iloc[:, 0]
-
-            tmp["close"] = pd.to_numeric(
-                close_data,
-                errors="coerce"
+            tmp = pd.DataFrame(
+                {
+                    "ticker": [ticker] * len(px),
+                    "date": pd.to_datetime(
+                        date_series,
+                        errors="coerce"
+                    ),
+                    "close": pd.to_numeric(
+                        close_series,
+                        errors="coerce"
+                    ),
+                }
             )
 
             tmp = tmp.dropna(
                 subset=[
-                    "ticker",
                     "date",
                     "close",
                 ]
             )
 
-            all_rows.append(tmp)
+            rows.append(tmp)
 
             time.sleep(0.05)
 
@@ -187,7 +134,7 @@ def load_price_history(
                 str(e)
             )
 
-    if len(all_rows) == 0:
+    if len(rows) == 0:
 
         return pd.DataFrame(
             columns=[
@@ -198,45 +145,22 @@ def load_price_history(
         )
 
     out = pd.concat(
-        all_rows,
-        ignore_index=True
+        rows,
+        ignore_index=True,
     )
 
-    # -----------------------------
-    # MultiIndex完全破壊
-    # -----------------------------
-
-    if isinstance(
-        out.columns,
-        pd.MultiIndex
-    ):
-
-        out.columns = [
-            c[0]
-            if isinstance(c, tuple)
-            else c
-            for c in out.columns
-        ]
-
-    out = out.loc[
-        :,
-        ~pd.Index(out.columns).duplicated()
-    ]
-
-    out.columns = [
-        str(c).lower()
-        for c in out.columns
-    ]
-
-    print(
-        "FINAL COLS =",
-        out.columns.tolist()
+    # ここで完全に作り直す
+    out = pd.DataFrame(
+        {
+            "ticker": out["ticker"].astype(str).values,
+            "date": pd.to_datetime(
+                out["date"]
+            ).values,
+            "close": pd.to_numeric(
+                out["close"],
+                errors="coerce"
+            ).values,
+        }
     )
 
-    return out[
-        [
-            "ticker",
-            "date",
-            "close",
-        ]
-    ]
+    return out
