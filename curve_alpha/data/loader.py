@@ -1,12 +1,76 @@
+import time
 import pandas as pd
-from pathlib import Path
-from curve_alpha.data.yf_loader import load_fundamentals, load_price_history
+import yfinance as yf
 
-def load_universe(path="universe_default.csv"):
-    return pd.read_csv(path)
+def load_price_history(
+    tickers,
+    period="1y",
+    interval="1d"
+):
+    frames = []
 
-def load_all_data(universe, price_period="1y", price_interval="1d"):
-    tickers = universe["ticker"].dropna().astype(str).unique().tolist()
-    fundamentals = load_fundamentals(tickers)
-    prices = load_price_history(tickers, period=price_period, interval=price_interval)
-    return fundamentals, prices
+    for t in tickers:
+
+        try:
+
+            px = yf.download(
+                t,
+                period=period,
+                interval=interval,
+                auto_adjust=True,
+                progress=False,
+                group_by="column",
+            )
+
+            if px.empty:
+                continue
+
+            if isinstance(px.columns, pd.MultiIndex):
+                px.columns = px.columns.get_level_values(0)
+
+            px = px.reset_index()
+
+            date_col = (
+                "Date"
+                if "Date" in px.columns
+                else px.columns[0]
+            )
+
+            px = px.rename(
+                columns={
+                    date_col: "date",
+                    "Close": "close",
+                }
+            )
+
+            px["ticker"] = t
+
+            frames.append(
+                px[
+                    [
+                        "ticker",
+                        "date",
+                        "close",
+                    ]
+                ]
+            )
+
+            time.sleep(0.05)
+
+        except Exception as e:
+            print("PRICE ERROR", t, e)
+
+    if not frames:
+
+        return pd.DataFrame(
+            columns=[
+                "ticker",
+                "date",
+                "close",
+            ]
+        )
+
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    )
