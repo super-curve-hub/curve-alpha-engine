@@ -1,61 +1,13 @@
-import time
 import pandas as pd
 import yfinance as yf
 
 
-def safe_get(data, key, default=None):
-    try:
-        return data.get(key, default)
-    except Exception:
-        return default
-
-
 def load_fundamentals(tickers):
-
-    rows = []
-
-    for ticker in tickers:
-
-        try:
-
-            info = yf.Ticker(ticker).info
-
-            rows.append(
-                {
-                    "ticker": ticker,
-                    "market_cap": safe_get(info, "marketCap"),
-                    "roe": safe_get(info, "returnOnEquity"),
-                    "roa": safe_get(info, "returnOnAssets"),
-                    "gross_margin": safe_get(info, "grossMargins"),
-                    "operating_margin": safe_get(info, "operatingMargins"),
-                    "profit_margin": safe_get(info, "profitMargins"),
-                    "revenue_growth": safe_get(info, "revenueGrowth"),
-                    "earnings_growth": safe_get(info, "earningsGrowth"),
-                    "pe": safe_get(info, "trailingPE"),
-                    "forward_pe": safe_get(info, "forwardPE"),
-                    "pb": safe_get(info, "priceToBook"),
-                    "ev_ebitda": safe_get(info, "enterpriseToEbitda"),
-                    "ev_sales": safe_get(info, "enterpriseToRevenue"),
-                    "debt_to_equity": safe_get(info, "debtToEquity"),
-                    "beta": safe_get(info, "beta"),
-                    "short_ratio": safe_get(info, "shortRatio"),
-                    "short_percent_float": safe_get(info, "shortPercentOfFloat"),
-                    "held_percent_institutions": safe_get(info, "heldPercentInstitutions"),
-                    "held_percent_insiders": safe_get(info, "heldPercentInsiders"),
-                }
-            )
-
-        except Exception as e:
-
-            print(
-                "FUNDAMENTAL ERROR:",
-                ticker,
-                str(e)
-            )
-
-        time.sleep(0.05)
-
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        {
+            "ticker": tickers
+        }
+    )
 
 
 def load_price_history(
@@ -64,82 +16,43 @@ def load_price_history(
     interval="1d"
 ):
 
-    all_records = []
+    ticker = tickers[0]
 
-    for ticker in tickers:
+    px = yf.download(
+        ticker,
+        period=period,
+        interval=interval,
+        auto_adjust=True,
+        progress=False,
+        threads=False,
+    )
 
-        try:
+    print("STEP1")
+    print(type(px.columns))
+    print(px.columns)
 
-            px = yf.download(
-                ticker,
-                period=period,
-                interval=interval,
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
+    if isinstance(px.columns, pd.MultiIndex):
+        px.columns = px.columns.get_level_values(0)
 
-            if px.empty:
-                continue
+    print("STEP2")
+    print(type(px.columns))
+    print(px.columns)
 
-            # MultiIndex除去
-            if isinstance(px.columns, pd.MultiIndex):
-
-                px.columns = px.columns.get_level_values(0)
-
-            px = px.reset_index()
-
-            if "Date" not in px.columns:
-                continue
-
-            if "Close" not in px.columns:
-                continue
-
-            for _, row in px.iterrows():
-
-                all_records.append(
-                    {
-                        "ticker": str(ticker),
-                        "date": pd.to_datetime(
-                            row["Date"],
-                            errors="coerce"
-                        ),
-                        "close": pd.to_numeric(
-                            row["Close"],
-                            errors="coerce"
-                        ),
-                    }
-                )
-
-            time.sleep(0.05)
-
-        except Exception as e:
-
-            print(
-                "PRICE ERROR:",
-                ticker,
-                str(e)
-            )
+    px = px.reset_index()
 
     out = pd.DataFrame(
-        all_records,
-        columns=[
-            "ticker",
-            "date",
-            "close",
-        ],
+        {
+            "ticker": [ticker] * len(px),
+            "date": px["Date"].values,
+            "close": px["Close"].values,
+        }
     )
 
-    out = out.dropna(
-        subset=[
-            "ticker",
-            "date",
-            "close",
-        ]
-    )
+    print("STEP3")
+    print(type(out.columns))
+    print(out.columns)
 
-    out = out.reset_index(
-        drop=True
-    )
+    print("STEP4")
+    print(out.head())
 
     return out
