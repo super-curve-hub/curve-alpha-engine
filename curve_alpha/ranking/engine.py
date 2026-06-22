@@ -18,14 +18,34 @@ DEFAULT_WEIGHTS = {
     "theme": 0.10,
 }
 
-def build_ranking(universe: pd.DataFrame, fundamentals: pd.DataFrame, prices: pd.DataFrame, weights=None) -> pd.DataFrame:
+def build_ranking(universe, fundamentals, prices, weights=None):
+
+    print("UNIVERSE")
+    print(universe.columns)
+
+    print("FUNDAMENTALS")
+    print(fundamentals.columns)
+
     weights = weights or DEFAULT_WEIGHTS
+
     df = universe.merge(fundamentals, on="ticker", how="left")
+    print("MERGE1 OK")
+
     mom = calc_momentum_features(prices)
-    mb = macro_beta_features(prices)
+
+    print("MOM")
+    print(mom.columns)
 
     df = df.merge(mom, on="ticker", how="left")
+    print("MERGE2 OK")
+
+    mb = macro_beta_features(prices)
+
+    print("MB")
+    print(mb.columns)
+
     df = df.merge(mb, on="ticker", how="left")
+    print("MERGE3 OK")
 
     df["quality_score"] = quality_score(df)
     df["value_score"] = value_score(df)
