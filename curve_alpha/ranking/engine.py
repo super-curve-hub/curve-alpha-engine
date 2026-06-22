@@ -15,6 +15,7 @@ from curve_alpha.macro.beta import (
 )
 from curve_alpha.utils import rating
 
+
 DEFAULT_WEIGHTS = {
     "quality": 0.25,
     "value": 0.20,
@@ -33,37 +34,46 @@ def build_ranking(
     weights=None,
 ) -> pd.DataFrame:
 
-    print("\n========== DEBUG ==========")
+    print("\n========== CURVE ALPHA DEBUG ==========")
 
-    print("UNIVERSE COLS")
-    print(universe.columns.tolist())
-
-    print("FUNDAMENTALS COLS")
-    print(fundamentals.columns.tolist())
-
-    print("PRICES COLS")
-    print(prices.columns.tolist())
-
-    if "ticker" not in universe.columns:
-        raise ValueError(
-            f"ticker missing in universe: {universe.columns.tolist()}"
-        )
-
-    if "ticker" not in fundamentals.columns:
-        raise ValueError(
-            f"ticker missing in fundamentals: {fundamentals.columns.tolist()}"
-        )
-
-    if "ticker" not in prices.columns:
-        raise ValueError(
-            f"ticker missing in prices: {prices.columns.tolist()}"
-        )
+    print("UNIVERSE:", universe.shape)
+    print("FUNDAMENTALS:", fundamentals.shape)
+    print("PRICES:", prices.shape)
 
     weights = weights or DEFAULT_WEIGHTS
 
-    # --------------------------------------------------
-    # Merge fundamentals
-    # --------------------------------------------------
+    # ------------------------------------
+    # Required Columns Check
+    # ------------------------------------
+
+    for name, df in {
+        "universe": universe,
+        "fundamentals": fundamentals,
+        "prices": prices,
+    }.items():
+
+        if "ticker" not in df.columns:
+
+            raise ValueError(
+                f"{name} missing ticker column\n"
+                f"columns={df.columns.tolist()}"
+            )
+
+    # ------------------------------------
+    # Deduplicate
+    # ------------------------------------
+
+    universe = universe.drop_duplicates(
+        subset=["ticker"]
+    )
+
+    fundamentals = fundamentals.drop_duplicates(
+        subset=["ticker"]
+    )
+
+    # ------------------------------------
+    # Base Merge
+    # ------------------------------------
 
     df = universe.merge(
         fundamentals,
@@ -71,15 +81,16 @@ def build_ranking(
         how="left",
     )
 
-    print("MERGE1 OK")
+    print("MERGE FUNDAMENTALS OK")
 
-    # --------------------------------------------------
+    # ------------------------------------
     # Momentum
-    # --------------------------------------------------
+    # ------------------------------------
 
     mom = calc_momentum_features(prices)
 
-    if mom.empty:
+    if mom is None or len(mom) == 0:
+
         mom = pd.DataFrame(
             columns=[
                 "ticker",
@@ -93,13 +104,16 @@ def build_ranking(
             ]
         )
 
-    print("MOM COLS")
-    print(mom.columns.tolist())
-
     if "ticker" not in mom.columns:
+
         raise ValueError(
-            f"ticker missing in mom: {mom.columns.tolist()}"
+            f"Momentum output invalid:\n"
+            f"{mom.columns.tolist()}"
         )
+
+    mom = mom.drop_duplicates(
+        subset=["ticker"]
+    )
 
     df = df.merge(
         mom,
@@ -107,15 +121,16 @@ def build_ranking(
         how="left",
     )
 
-    print("MERGE2 OK")
+    print("MERGE MOMENTUM OK")
 
-    # --------------------------------------------------
+    # ------------------------------------
     # Macro
-    # --------------------------------------------------
+    # ------------------------------------
 
     mb = macro_beta_features(prices)
 
-    if mb.empty:
+    if mb is None or len(mb) == 0:
+
         mb = pd.DataFrame(
             columns=[
                 "ticker",
@@ -123,13 +138,16 @@ def build_ranking(
             ]
         )
 
-    print("MB COLS")
-    print(mb.columns.tolist())
-
     if "ticker" not in mb.columns:
+
         raise ValueError(
-            f"ticker missing in mb: {mb.columns.tolist()}"
+            f"Macro output invalid:\n"
+            f"{mb.columns.tolist()}"
         )
+
+    mb = mb.drop_duplicates(
+        subset=["ticker"]
+    )
 
     df = df.merge(
         mb,
@@ -137,11 +155,11 @@ def build_ranking(
         how="left",
     )
 
-    print("MERGE3 OK")
+    print("MERGE MACRO OK")
 
-    # --------------------------------------------------
+    # ------------------------------------
     # Factor Scores
-    # --------------------------------------------------
+    # ------------------------------------
 
     df["quality_score"] = quality_score(df)
     df["value_score"] = value_score(df)
@@ -151,9 +169,21 @@ def build_ranking(
     df["flow_score"] = flow_score(df)
     df["theme_score"] = theme_score(df)
 
-    # --------------------------------------------------
-    # Total Score
-    # --------------------------------------------------
+    score_cols = [
+        "quality_score",
+        "value_score",
+        "momentum_score",
+        "risk_score",
+        "macro_score",
+        "flow_score",
+        "theme_score",
+    ]
+
+    df[score_cols] = df[score_cols].fillna(50)
+
+    # ------------------------------------
+    # Composite Score
+    # ------------------------------------
 
     df["curve_alpha_score"] = (
         weights["quality"] * df["quality_score"]
@@ -165,7 +195,15 @@ def build_ranking(
         + weights["theme"] * df["theme_score"]
     ).round(2)
 
-    df["rating"] = df["curve_alpha_score"].apply(rating)
+    df["curve_alpha_score"] = (
+        df["curve_alpha_score"]
+        .fillna(50)
+    )
+
+    df["rating"] = (
+        df["curve_alpha_score"]
+        .apply(rating)
+    )
 
     cols = [
         "ticker",
@@ -199,9 +237,13 @@ def build_ranking(
         "max_drawdown",
     ]
 
-    cols = [c for c in cols if c in df.columns]
+    cols = [
+        c
+        for c in cols
+        if c in df.columns
+    ]
 
-    return (
+    out = (
         df[cols]
         .sort_values(
             "curve_alpha_score",
@@ -209,3 +251,11 @@ def build_ranking(
         )
         .reset_index(drop=True)
     )
+
+    print(
+        "\nRANKING COMPLETE:",
+        len(out),
+        "stocks"
+    )
+
+    return out
