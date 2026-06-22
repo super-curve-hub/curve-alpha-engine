@@ -1,79 +1,132 @@
 import time
 import pandas as pd
 import yfinance as yf
-from curve_alpha.utils import safe_get
 
 def load_fundamentals(tickers):
     rows = []
+
     for t in tickers:
         try:
             info = yf.Ticker(t).info
-            market_cap = safe_get(info, "marketCap")
-            fcf = safe_get(info, "freeCashflow")
-            total_debt = safe_get(info, "totalDebt")
-            total_cash = safe_get(info, "totalCash")
-            revenue = safe_get(info, "totalRevenue")
-            ebitda = safe_get(info, "ebitda")
-
-            fcf_yield = None
-            if market_cap and fcf:
-                fcf_yield = fcf / market_cap
-
-            ev_sales = safe_get(info, "enterpriseToRevenue")
-            ev_ebitda = safe_get(info, "enterpriseToEbitda")
-
-            debt_to_equity = safe_get(info, "debtToEquity")
-            if debt_to_equity is not None:
-                debt_to_equity = debt_to_equity / 100.0
 
             rows.append({
                 "ticker": t,
-                "market_cap": market_cap,
-                "roe": safe_get(info, "returnOnEquity"),
-                "roa": safe_get(info, "returnOnAssets"),
-                "gross_margin": safe_get(info, "grossMargins"),
-                "operating_margin": safe_get(info, "operatingMargins"),
-                "profit_margin": safe_get(info, "profitMargins"),
-                "revenue_growth": safe_get(info, "revenueGrowth"),
-                "earnings_growth": safe_get(info, "earningsGrowth"),
-                "pe": safe_get(info, "trailingPE"),
-                "forward_pe": safe_get(info, "forwardPE"),
-                "pb": safe_get(info, "priceToBook"),
-                "ev_ebitda": ev_ebitda,
-                "ev_sales": ev_sales,
-                "fcf_yield": fcf_yield,
-                "debt_to_equity": debt_to_equity,
-                "beta": safe_get(info, "beta"),
-                "short_ratio": safe_get(info, "shortRatio"),
-                "short_percent_float": safe_get(info, "shortPercentOfFloat"),
-                "held_percent_institutions": safe_get(info, "heldPercentInstitutions"),
-                "held_percent_insiders": safe_get(info, "heldPercentInsiders"),
+                "market_cap": info.get("marketCap"),
+                "roe": info.get("returnOnEquity"),
+                "roa": info.get("returnOnAssets"),
+                "gross_margin": info.get("grossMargins"),
+                "operating_margin": info.get("operatingMargins"),
+                "profit_margin": info.get("profitMargins"),
+                "revenue_growth": info.get("revenueGrowth"),
+                "earnings_growth": info.get("earningsGrowth"),
+                "pe": info.get("trailingPE"),
+                "forward_pe": info.get("forwardPE"),
+                "pb": info.get("priceToBook"),
+                "ev_ebitda": info.get("enterpriseToEbitda"),
+                "ev_sales": info.get("enterpriseToRevenue"),
+                "fcf_yield": None,
+                "debt_to_equity": info.get("debtToEquity"),
+                "beta": info.get("beta"),
+                "short_ratio": info.get("shortRatio"),
+                "short_percent_float": info.get("shortPercentOfFloat"),
+                "held_percent_institutions": info.get("heldPercentInstitutions"),
+                "held_percent_insiders": info.get("heldPercentInsiders"),
                 "buyback_yield": None,
-                "revenue": revenue,
-                "ebitda": ebitda,
-                "total_debt": total_debt,
-                "total_cash": total_cash,
             })
-            time.sleep(0.05)
+
         except Exception as e:
-            rows.append({"ticker": t, "error": str(e)})
+            print("FUNDAMENTAL ERROR:", t, e)
+
+        time.sleep(0.05)
+
     return pd.DataFrame(rows)
 
-def load_price_history(tickers, period="1y", interval="1d"):
+
+def load_price_history(
+    tickers,
+    period="1y",
+    interval="1d"
+):
+
     frames = []
+
     for t in tickers:
+
         try:
-            px = yf.download(t, period=period, interval=interval, auto_adjust=True, progress=False)
+
+            px = yf.download(
+                t,
+                period=period,
+                interval=interval,
+                auto_adjust=True,
+                progress=False,
+                group_by="column"
+            )
+
             if px.empty:
                 continue
+
+            # MultiIndex対策
+            if isinstance(px.columns, pd.MultiIndex):
+                px.columns = px.columns.get_level_values(0)
+
             px = px.reset_index()
-            date_col = "Date" if "Date" in px.columns else "Datetime"
-            px = px[[date_col, "Close"]].rename(columns={date_col: "date", "Close": "close"})
+
+            if "Date" in px.columns:
+                date_col = "Date"
+            else:
+                date_col = px.columns[0]
+
+            px = px.rename(
+                columns={
+                    date_col: "date",
+                    "Close": "close"
+                }
+            )
+
+            if "close" not in px.columns:
+                continue
+
             px["ticker"] = t
-            frames.append(px[["ticker", "date", "close"]])
-            time.sleep(0.05)
-        except Exception:
-            continue
-    if not frames:
-        return pd.DataFrame(columns=["ticker", "date", "close"])
-    return pd.concat(frames, ignore_index=True)
+
+            frames.append(
+                px[
+                    [
+                        "ticker",
+                        "date",
+                        "close"
+                    ]
+                ]
+            )
+
+        except Exception as e:
+
+            print(
+                "PRICE ERROR:",
+                t,
+                e
+            )
+
+        time.sleep(0.05)
+
+    if len(frames) == 0:
+
+        return pd.DataFrame(
+            columns=[
+                "ticker",
+                "date",
+                "close"
+            ]
+        )
+
+    out = pd.concat(
+        frames,
+        ignore_index=True
+    )
+
+    out.columns = [
+        str(c).lower()
+        for c in out.columns
+    ]
+
+    return out
