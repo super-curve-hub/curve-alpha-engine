@@ -3,46 +3,176 @@ import pandas as pd
 import yfinance as yf
 
 
+def safe_get(data, key, default=None):
+    try:
+        value = data.get(key, default)
+
+        if value is None:
+            return default
+
+        return value
+
+    except Exception:
+        return default
+
+
 def load_fundamentals(tickers):
 
     rows = []
 
-    for t in tickers:
+    for ticker in tickers:
 
         try:
 
-            info = yf.Ticker(t).info
+            info = yf.Ticker(ticker).info
+
+            market_cap = safe_get(
+                info,
+                "marketCap"
+            )
+
+            fcf = safe_get(
+                info,
+                "freeCashflow"
+            )
+
+            fcf_yield = None
+
+            if (
+                market_cap is not None
+                and market_cap > 0
+                and fcf is not None
+            ):
+                fcf_yield = (
+                    fcf / market_cap
+                )
+
+            debt_to_equity = safe_get(
+                info,
+                "debtToEquity"
+            )
+
+            if debt_to_equity is not None:
+                debt_to_equity = (
+                    debt_to_equity / 100.0
+                )
 
             rows.append(
                 {
-                    "ticker": t,
-                    "market_cap": info.get("marketCap"),
-                    "roe": info.get("returnOnEquity"),
-                    "roa": info.get("returnOnAssets"),
-                    "gross_margin": info.get("grossMargins"),
-                    "operating_margin": info.get("operatingMargins"),
-                    "profit_margin": info.get("profitMargins"),
-                    "revenue_growth": info.get("revenueGrowth"),
-                    "earnings_growth": info.get("earningsGrowth"),
-                    "pe": info.get("trailingPE"),
-                    "forward_pe": info.get("forwardPE"),
-                    "pb": info.get("priceToBook"),
-                    "ev_ebitda": info.get("enterpriseToEbitda"),
-                    "ev_sales": info.get("enterpriseToRevenue"),
-                    "fcf_yield": None,
-                    "debt_to_equity": info.get("debtToEquity"),
-                    "beta": info.get("beta"),
-                    "short_ratio": info.get("shortRatio"),
-                    "short_percent_float": info.get(
+                    "ticker": ticker,
+
+                    "market_cap": market_cap,
+
+                    "roe": safe_get(
+                        info,
+                        "returnOnEquity"
+                    ),
+
+                    "roa": safe_get(
+                        info,
+                        "returnOnAssets"
+                    ),
+
+                    "gross_margin": safe_get(
+                        info,
+                        "grossMargins"
+                    ),
+
+                    "operating_margin": safe_get(
+                        info,
+                        "operatingMargins"
+                    ),
+
+                    "profit_margin": safe_get(
+                        info,
+                        "profitMargins"
+                    ),
+
+                    "revenue_growth": safe_get(
+                        info,
+                        "revenueGrowth"
+                    ),
+
+                    "earnings_growth": safe_get(
+                        info,
+                        "earningsGrowth"
+                    ),
+
+                    "pe": safe_get(
+                        info,
+                        "trailingPE"
+                    ),
+
+                    "forward_pe": safe_get(
+                        info,
+                        "forwardPE"
+                    ),
+
+                    "pb": safe_get(
+                        info,
+                        "priceToBook"
+                    ),
+
+                    "ev_ebitda": safe_get(
+                        info,
+                        "enterpriseToEbitda"
+                    ),
+
+                    "ev_sales": safe_get(
+                        info,
+                        "enterpriseToRevenue"
+                    ),
+
+                    "fcf_yield": fcf_yield,
+
+                    "debt_to_equity": debt_to_equity,
+
+                    "beta": safe_get(
+                        info,
+                        "beta"
+                    ),
+
+                    "short_ratio": safe_get(
+                        info,
+                        "shortRatio"
+                    ),
+
+                    "short_percent_float": safe_get(
+                        info,
                         "shortPercentOfFloat"
                     ),
-                    "held_percent_institutions": info.get(
+
+                    "held_percent_institutions": safe_get(
+                        info,
                         "heldPercentInstitutions"
                     ),
-                    "held_percent_insiders": info.get(
+
+                    "held_percent_insiders": safe_get(
+                        info,
                         "heldPercentInsiders"
                     ),
+
                     "buyback_yield": None,
+
+                    "revenue": safe_get(
+                        info,
+                        "totalRevenue"
+                    ),
+
+                    "ebitda": safe_get(
+                        info,
+                        "ebitda"
+                    ),
+
+                    "total_debt": safe_get(
+                        info,
+                        "totalDebt"
+                    ),
+
+                    "total_cash": safe_get(
+                        info,
+                        "totalCash"
+                    ),
                 }
             )
 
@@ -50,7 +180,7 @@ def load_fundamentals(tickers):
 
             print(
                 "FUNDAMENTAL ERROR:",
-                t,
+                ticker,
                 str(e)
             )
 
@@ -83,19 +213,15 @@ def load_price_history(
             if px.empty:
                 continue
 
-            # -------------------------
-            # MultiIndex対策
-            # -------------------------
-
+            # yfinance MultiIndex対策
             if isinstance(
                 px.columns,
                 pd.MultiIndex
             ):
-
-                px.columns = (
-                    px.columns
-                    .get_level_values(0)
-                )
+                px.columns = [
+                    str(c[0])
+                    for c in px.columns
+                ]
 
             px = px.reset_index()
 
@@ -113,7 +239,12 @@ def load_price_history(
 
             if date_col is None:
 
-                date_col = px.columns[0]
+                print(
+                    "DATE COLUMN NOT FOUND:",
+                    ticker
+                )
+
+                continue
 
             close_col = None
 
@@ -125,6 +256,11 @@ def load_price_history(
                     break
 
             if close_col is None:
+
+                print(
+                    "CLOSE COLUMN NOT FOUND:",
+                    ticker
+                )
 
                 continue
 
@@ -142,9 +278,17 @@ def load_price_history(
                 errors="coerce"
             )
 
-            tmp = tmp.dropna()
+            tmp = tmp.dropna(
+                subset=[
+                    "ticker",
+                    "date",
+                    "close",
+                ]
+            )
 
             all_rows.append(tmp)
+
+            time.sleep(0.05)
 
         except Exception as e:
 
@@ -153,8 +297,6 @@ def load_price_history(
                 ticker,
                 str(e)
             )
-
-        time.sleep(0.05)
 
     if len(all_rows) == 0:
 
@@ -168,12 +310,18 @@ def load_price_history(
 
     out = pd.concat(
         all_rows,
-        ignore_index=True
+        ignore_index=True,
     )
 
     out.columns = [
-        str(x).lower()
-        for x in out.columns
+        str(c).lower()
+        for c in out.columns
     ]
 
-    return out
+    return out[
+        [
+            "ticker",
+            "date",
+            "close",
+        ]
+    ]
