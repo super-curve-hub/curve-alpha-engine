@@ -15,16 +15,10 @@ def load_universe(csv_path):
     """
     universe_default.csv から銘柄リストを読み込む。
 
-    対応する列名:
+    対応列:
     - ticker
     - symbol
     - code
-
-    例:
-    ticker
-    AAPL
-    MSFT
-    7203.T
     """
 
     csv_path = Path(csv_path)
@@ -65,8 +59,99 @@ def load_universe(csv_path):
     return tickers
 
 
+def save_output(scored, output_dir):
+    """
+    総合スコア順の実務用ランキングだけをCSV保存する。
+
+    保存先:
+    output/equity_factor_screen.csv
+
+    保存対象:
+    - スコア列
+    - 主要ファンダメンタルズ列
+    - 需給・レバレッジ列
+
+    保存しないもの:
+    - *_w などのwinsorize済み中間列
+    - net_debt_to_ebitda などの内部計算補助列
+    - cash_to_debt などの内部計算補助列
+    """
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = output_dir / "equity_factor_screen.csv"
+
+    output_cols = [
+        # ranking
+        "ticker",
+        "composite_score",
+        "factor_regime",
+        "quality_score",
+        "value_score",
+        "growth_score",
+        "leverage_score",
+        "squeeze_score",
+
+        # size
+        "market_cap",
+
+        # quality
+        "roe",
+        "roa",
+        "gross_margin",
+        "operating_margin",
+        "profit_margin",
+
+        # growth
+        "revenue_growth",
+        "earnings_growth",
+
+        # value
+        "pe",
+        "forward_pe",
+        "pb",
+        "ev_ebitda",
+        "ev_sales",
+        "fcf_yield",
+
+        # leverage / balance sheet
+        "debt_to_equity",
+        "total_debt",
+        "total_cash",
+        "net_debt",
+
+        # flow / squeeze
+        "short_ratio",
+        "short_percent_float",
+        "held_percent_institutions",
+        "held_percent_insiders",
+        "beta",
+
+        # status
+        "error",
+    ]
+
+    existing_cols = [c for c in output_cols if c in scored.columns]
+
+    result = (
+        scored[existing_cols]
+        .sort_values("composite_score", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    result.to_csv(
+        output_path,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    return output_path
+
+
 def main():
     universe_path = ROOT_DIR / "universe_default.csv"
+    output_dir = ROOT_DIR / "output"
 
     print("=== Load universe ===")
     tickers = load_universe(universe_path)
@@ -137,6 +222,10 @@ def main():
     for title, key in sections:
         print(f"\n--- {title} ---")
         print(ranked[key][score_cols].to_string(index=False))
+
+    print("\n=== Save output ===")
+    output_path = save_output(scored, output_dir)
+    print(f"saved: {output_path}")
 
     print("\nOK: equity factor screen finished")
 
