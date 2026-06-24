@@ -5,18 +5,21 @@ import pandas as pd
 def winsorize_series(s, lower=0.05, upper=0.95):
     """
     外れ値を上下分位で丸める。
-    ファンダメンタルズは外れ値が強いため、スコア化前に軽く処理する。
     """
     s = pd.to_numeric(s, errors="coerce")
+
+    if s.notna().sum() <= 1:
+        return s
+
     lo = s.quantile(lower)
     hi = s.quantile(upper)
+
     return s.clip(lo, hi)
 
 
 def percentile_score(s, higher_is_better=True):
     """
-    クロスセクションで0〜100点化。
-    higher_is_better=False の場合は、低い値ほど高スコアにする。
+    クロスセクションで0〜100点化する。
     """
     s = pd.to_numeric(s, errors="coerce")
 
@@ -33,15 +36,11 @@ def percentile_score(s, higher_is_better=True):
 
 def add_factor_scores(df):
     """
-    load_fundamentals() の出力に対して、
     quality / value / growth / leverage / squeeze の5スコアを追加する。
     """
 
     df = df.copy()
 
-    # -----------------------------
-    # 1. 前処理
-    # -----------------------------
     numeric_cols = [
         "market_cap",
         "roe",
@@ -74,29 +73,24 @@ def add_factor_scores(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # net_debt / EBITDA
     if "net_debt" in df.columns and "ebitda" in df.columns:
         df["net_debt_to_ebitda"] = np.where(
             (df["ebitda"].notna()) & (df["ebitda"] > 0),
             df["net_debt"] / df["ebitda"],
-            np.nan
+            np.nan,
         )
     else:
         df["net_debt_to_ebitda"] = np.nan
 
-    # cash / debt
     if "total_cash" in df.columns and "total_debt" in df.columns:
         df["cash_to_debt"] = np.where(
             (df["total_debt"].notna()) & (df["total_debt"] > 0),
             df["total_cash"] / df["total_debt"],
-            np.nan
+            np.nan,
         )
     else:
         df["cash_to_debt"] = np.nan
 
-    # -----------------------------
-    # 2. 外れ値処理
-    # -----------------------------
     factor_input_cols = [
         "roe",
         "roa",
@@ -125,9 +119,6 @@ def add_factor_scores(df):
         if col in df.columns:
             df[f"{col}_w"] = winsorize_series(df[col])
 
-    # -----------------------------
-    # 3. Quality Score
-    # -----------------------------
     quality_parts = []
 
     for col in [
@@ -140,14 +131,14 @@ def add_factor_scores(df):
         if col in df.columns:
             quality_parts.append(percentile_score(df[col], higher_is_better=True))
 
-    df["quality_score"] = pd.concat(quality_parts, axis=1).mean(axis=1)
+    df["quality_score"] = (
+        pd.concat(quality_parts, axis=1).mean(axis=1)
+        if quality_parts
+        else np.nan
+    )
 
-    # -----------------------------
-    # 4. Value Score
-    # -----------------------------
     value_parts = []
 
-    # 低いほど割安
     for col in [
         "pe_w",
         "forward_pe_w",
@@ -158,15 +149,15 @@ def add_factor_scores(df):
         if col in df.columns:
             value_parts.append(percentile_score(df[col], higher_is_better=False))
 
-    # 高いほど割安
     if "fcf_yield_w" in df.columns:
         value_parts.append(percentile_score(df["fcf_yield_w"], higher_is_better=True))
 
-    df["value_score"] = pd.concat(value_parts, axis=1).mean(axis=1)
+    df["value_score"] = (
+        pd.concat(value_parts, axis=1).mean(axis=1)
+        if value_parts
+        else np.nan
+    )
 
-    # -----------------------------
-    # 5. Growth Score
-    # -----------------------------
     growth_parts = []
 
     for col in [
@@ -176,13 +167,12 @@ def add_factor_scores(df):
         if col in df.columns:
             growth_parts.append(percentile_score(df[col], higher_is_better=True))
 
-    df["growth_score"] = pd.concat(growth_parts, axis=1).mean(axis=1)
+    df["growth_score"] = (
+        pd.concat(growth_parts, axis=1).mean(axis=1)
+        if growth_parts
+        else np.nan
+    )
 
-    # -----------------------------
-    # 6. Leverage Score
-    # -----------------------------
-    # ここは「財務安全性スコア」
-    # 低レバレッジ・高キャッシュを高スコアにする
     leverage_parts = []
 
     for col in [
@@ -195,13 +185,12 @@ def add_factor_scores(df):
     if "cash_to_debt_w" in df.columns:
         leverage_parts.append(percentile_score(df["cash_to_debt_w"], higher_is_better=True))
 
-    df["leverage_score"] = pd.concat(leverage_parts, axis=1).mean(axis=1)
+    df["leverage_score"] = (
+        pd.concat(leverage_parts, axis=1).mean(axis=1)
+        if leverage_parts
+        else np.nan
+    )
 
-    # -----------------------------
-    # 7. Squeeze Score
-    # -----------------------------
-    # 踏み上げ候補スコア
-    # short比率が高く、機関保有が高く、insider保有が高く、betaが高い銘柄を上位にする
     squeeze_parts = []
 
     for col in [
@@ -214,13 +203,12 @@ def add_factor_scores(df):
         if col in df.columns:
             squeeze_parts.append(percentile_score(df[col], higher_is_better=True))
 
-    df["squeeze_score"] = pd.concat(squeeze_parts, axis=1).mean(axis=1)
+    df["squeeze_score"] = (
+        pd.concat(squeeze_parts, axis=1).mean(axis=1)
+        if squeeze_parts
+        else np.nan
+    )
 
-    # -----------------------------
-    # 8. Composite Score
-    # -----------------------------
-    # 標準的なロング候補スコア
-    # squeezeは通常の優良株スコアとは別物なので、低めの重み
     df["composite_score"] = (
         0.30 * df["quality_score"] +
         0.25 * df["value_score"] +
@@ -229,9 +217,6 @@ def add_factor_scores(df):
         0.10 * df["squeeze_score"]
     )
 
-    # -----------------------------
-    # 9. Regime Label
-    # -----------------------------
     df["factor_regime"] = np.select(
         [
             (df["quality_score"] >= 70) & (df["value_score"] >= 70),
@@ -247,7 +232,26 @@ def add_factor_scores(df):
             "Squeeze Candidate",
             "Leveraged Balance Sheet",
         ],
-        default="Neutral"
+        default="Neutral",
     )
 
     return df
+
+
+def rank_factor_candidates(scored_df, top_n=30):
+    """
+    ファクター別に上位候補を抽出する。
+    """
+
+    df = scored_df.copy()
+
+    output = {
+        "quality_top": df.sort_values("quality_score", ascending=False).head(top_n),
+        "value_top": df.sort_values("value_score", ascending=False).head(top_n),
+        "growth_top": df.sort_values("growth_score", ascending=False).head(top_n),
+        "low_leverage_top": df.sort_values("leverage_score", ascending=False).head(top_n),
+        "squeeze_top": df.sort_values("squeeze_score", ascending=False).head(top_n),
+        "composite_top": df.sort_values("composite_score", ascending=False).head(top_n),
+    }
+
+    return output
